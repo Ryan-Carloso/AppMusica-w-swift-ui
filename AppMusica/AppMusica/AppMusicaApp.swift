@@ -1,5 +1,6 @@
 import SwiftUI
-import WebKit
+import AVKit
+import XCDYouTubeKit
 
 struct Video: Identifiable {
     let id = UUID()
@@ -12,6 +13,7 @@ struct ContentView: View {
     @State private var searchResults: [Video] = []
     @State private var selectedVideo: String? = nil
     @State private var savedVideos: [Video] = []
+    @State private var player: AVPlayer? = nil
 
     var body: some View {
         VStack(spacing: 16) {
@@ -24,10 +26,13 @@ struct ContentView: View {
             }
             .padding()
 
-            if let selectedVideo = selectedVideo {
-                VideoPlayerView(videoURL: selectedVideo)
-                    .frame(height: 300)
-                    .padding(.top)
+            // Player invisível
+            if selectedVideo != nil {
+                VideoPlayer(player: player)
+                    .frame(height: 0) // Dimensões zero para esconder
+                    .onAppear {
+                        playVideo(url: selectedVideo!)
+                    }
             }
 
             List {
@@ -55,6 +60,7 @@ struct ContentView: View {
                         Spacer()
                         Button("Assistir") {
                             selectedVideo = video.url
+                            playVideo(url: video.url)
                         }
                         .foregroundColor(.blue)
                     }
@@ -95,25 +101,42 @@ struct ContentView: View {
             savedVideos.append(video)
         }
     }
-}
+    
+    private func playVideo(url: String) {
+        let videoId = url.components(separatedBy: "v=").last ?? ""
+        XCDYouTubeClient.default().getVideoWithIdentifier(videoId) { (video, error) in
+            if let error = error {
+                print("Erro ao obter vídeo: \(error)")
+                return
+            }
+            
+            guard let streamURLs = video?.streamURLs else {
+                print("Nenhuma URL de stream disponível.")
+                return
+            }
 
-struct VideoPlayerView: UIViewRepresentable {
-    let videoURL: String
-    
-    func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView()
-        return webView
-    }
-    
-    func updateUIView(_ uiView: WKWebView, context: Context) {
-        if let url = URL(string: videoURL) {
-            let request = URLRequest(url: url)
-            uiView.load(request)
+            // Seleciona a melhor qualidade disponível
+            let preferredQualities: [XCDYouTubeVideoQuality] = [ .HD1080, .HD720]
+            var streamURL: URL? = nil
+            
+            for quality in preferredQualities {
+                if let url = streamURLs[quality] {
+                    streamURL = url
+                    break
+                }
+            }
+
+            guard let finalStreamURL = streamURL else {
+                print("Nenhuma URL de stream disponível nas qualidades preferidas.")
+                return
+            }
+
+            player = AVPlayer(url: finalStreamURL)
+            player?.play()
         }
     }
 }
 
-// Estrutura para decodificar a resposta da API
 struct YouTubeResponse: Codable {
     let items: [Item]
     
